@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>StreamCut — Clip the moment. Skip the rest.</title>
+<style>
+  :root {
+    --bg: #08090a;
+    --panel: #0d0e10;
+    --panel-2: #15171c;
+    --border: #23262d;
+    --text: #f1f4f9;
+    --muted: #8892a3;
+    --accent: #aaf558;
+    --accent-dim: rgba(170, 245, 88, 0.16);
+    --error: #ff6b6b;
+    --warn: #ffcc66;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+
+  header.brand { margin-bottom: 34px; }
+
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #0e100b;
+    font-weight: 800;
+    font-size: 20px;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+
+  header.brand h1 {
+    display: inline-block;
+    margin: 0;
+    font-size: 25px;
+    letter-spacing: -0.02em;
+    vertical-align: middle;
+  }
+
+  header.brand p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .tag {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  section.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-bottom: 22px;
+  }
+
+  h2 {
+    margin: 0 0 16px;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  input[type="text"], select, input[type="url"] {
+    flex: 1 1 320px;
+    min-width: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  input:focus, select:focus { border-color: var(--accent); }
+
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background 0.15s ease;
+    white-space: nowrap;
+  }
+
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn-primary { background: var(--accent); color: #0e100b; }
+  .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+
+  .btn-ghost {
+    background: var(--panel-2);
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--muted); }
+
+  .btn-small { padding: 8px 13px; font-size: 13px; }
+
+  .hint { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+
+  .player-shell {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .player-shell iframe { width: 100%; height: 100%; border: 0; }
+
+  .player-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+  }
+
+  .player-empty .glyph { font-size: 42px; opacity: 0.35; display: block; margin-bottom: 8px; }
+
+  .video-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .video-meta strong { color: var(--text); font-weight: 600; }
+
+  .time-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .field input {
+    width: 100%;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+  }
+
+  .timeline {
+    position: relative;
+    height: 46px;
+    margin-top: 22px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .timeline .fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--accent-dim);
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    pointer-events: none;
+  }
+
+  .timeline .playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--muted);
+    pointer-events: none;
+  }
+
+  .handle {
+    position: absolute;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
+    margin-left: -7px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    cursor: grab;
+  }
+
+  .handle:active { cursor: grabbing; }
+
+  .timeline-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
+  .quality-options { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  .quality {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 11px 16px;
+    cursor: pointer;
+    text-align: center;
+    min-width: 84px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .quality:hover:not(.disabled) { border-color: var(--muted); }
+
+  .quality.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .quality.disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .quality .q-label { font-weight: 600; font-size: 14px; }
+  .quality .q-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .status {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .status.error { border-color: var(--error); color: var(--error); }
+  .status.success { border-color: var(--accent); color: var(--accent); }
+  .status.busy { border-color: var(--warn); color: var(--warn); }
+  .status.hidden { display: none; }
+
+  .summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px 0 4px;
+  }
+
+  .summary .duration { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .summary .quality-note { color: var(--muted); font-size: 13px; }
+
+  .download-row { margin-top: 12px; }
+
+  a.download-link {
+    display: inline-block;
+    background: var(--accent);
+    color: #0e100b;
+    font-weight: 700;
+    text-decoration: none;
+    padding: 12px 22px;
+    border-radius: 9px;
+    font-size: 14px;
+  }
+  a.download-link:hover { opacity: 0.9; }
+
+  .progress-track {
+    height: 6px;
+    background: var(--panel-2);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 14px;
+  }
+
+  .progress-track .bar {
+    height: 100%;
+    width: 30%;
+    background: var(--accent);
+    border-radius: 4px;
+    animation: slide 1.4s ease-in-out infinite;
+  }
+
+  @keyframes slide {
+    0%   { margin-left: -30%; }
+    100% { margin-left: 100%; }
+  }
+
+  footer {
+    margin-top: 30px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 26px 14px 60px; }
+    section.card { padding: 16px; }
+    .summary .duration { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="brand">
+    <span class="logo">S</span><h1>StreamCut</h1>
+    <p>Clip the moment. Skip the rest.</p>
+    <span class="tag">Browser tool · MVP</span>
+  </header>
+
+  <section class="card">
+    <h2>1. Add a YouTube video</h2>
+    <div class="row">
+      <input id="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+      <button id="load" class="btn-primary" type="button">Load video</button>
+    </div>
+    <p class="hint">Use a video you own or have permission to process. Some videos may be unavailable for extraction.</p>
+    <div id="load-status" class="status hidden"></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Preview and select your segment</h2>
+    <div class="player-shell" id="player-shell">
+      <div class="player-empty" id="player-empty">
+        <span class="glyph">▶</span>
+        <strong>Your video preview will appear here</strong><br>
+        Paste a URL above to load the player.
+      </div>
+    </div>
+
+    <div class="video-meta" id="video-meta" style="display:none">
+      <span id="meta-title">—</span>
+      <span>Duration: <strong id="meta-duration">--:--</strong></span>
+    </div>
+
+    <div class="time-grid">
+      <div class="field">
+        <label for="start">Start time</label>
+        <input id="start" type="text" value="00:00:00" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="end">End time</label>
+        <input id="end" type="text" value="00:00:00" spellcheck="false">
+      </div>
+    </div>
+
+    <div class="timeline" id="timeline" aria-label="Clip timeline">
+      <div class="fill" id="fill"></div>
+      <div class="playhead" id="playhead" style="left:0"></div>
+      <div class="handle" id="handle-start" style="left:0" role="slider" tabindex="0" aria-label="Start time"></div>
+      <div class="handle" id="handle-end" style="left:100%" role="slider" tabindex="0" aria-label="End time"></div>
+    </div>
+    <div class="timeline-scale">
+      <span>00:00</span>
+      <span>Drag either handle to trim</span>
+      <span id="scale-end">--:--</span>
+    </div>
+
+    <div class="btn-row">
+      <button id="set-start" class="btn-ghost btn-small" type="button">Set start to playhead</button>
+      <button id="set-end" class="btn-ghost btn-small" type="button">Set end to playhead</button>
+    </div>
+    <p class="hint">Tip: seek to a moment in the player, then set start or end to the current position.</p>
+    <p class="hint">Selected duration: <strong id="selected-duration">0:00</strong></p>
+  </section>
+
+  <section class="card">
+    <h2>3. Choose download quality</h2>
+    <div class="quality-options" id="quality-options"></div>
+    <p class="hint">Load a video to check which resolutions are available. Options below 720p are never offered.</p>
+  </section>
+
+  <section class="card">
+    <div class="summary">
+      <div>
+        <div class="quality-note">Your clip</div>
+        <div class="duration" id="clip-duration">0:00</div>
+      </div>
+      <div class="quality-note" id="clip-quality">720p · MP4 when supported</div>
+    </div>
+
+    <button id="download" class="btn-primary" type="button" disabled>↓ Download segment</button>
+
+    <div id="job-status" class="status hidden"></div>
+    <div id="progress-track" class="progress-track" style="display:none"><div class="bar"></div></div>
+    <div class="download-row" id="download-row" style="display:none">
+      <a id="download-link" class="download-link" href="#" download>↓ Save your clip</a>
+    </div>
+
+    <p class="hint">Processing happens on the server. Segment boundaries may vary slightly due to keyframes. Availability depends on the source, and the tool does not bypass DRM or access controls.</p>
+  </section>
+
+  <footer>
+    StreamCut MVP · Requires an authorized video source and a configured backend.<br>
+    Quality options depend on what the source exposes. Segments are limited to four hours.
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var YT_READY_TIMEOUT = 5000;
+
+  var state = {
+    url: "",
+    videoId: null,
+    duration: 0,
+    qualities: [],
+    quality: 720,
+    player: null,
+    playerReady: false,
+    ytReady: false,
+    pollTimer: null,
+    dragging: null
+  };
+
+  var el = {
+    url: document.getElementById("url"),
+    load: document.getElementById("load"),
+    loadStatus: document.getElementById("load-status"),
+    playerShell: document.getElementById("player-shell"),
+    playerEmpty: document.getElementById("player-empty"),
+    videoMeta: document.getElementById("video-meta"),
+    metaTitle: document.getElementById("meta-title"),
+    metaDuration: document.getElementById("meta-duration"),
+    start: document.getElementById("start"),
+    end: document.getElementById("end"),
+    timeline: document.getElementById("timeline"),
+    fill: document.getElementById("fill"),
+    playhead: document.getElementById("playhead"),
+    handleStart: document.getElementById("handle-start"),
+    handleEnd: document.getElementById("handle-end"),
+    scaleEnd: document.getElementById("scale-end"),
+    setStart: document.getElementById("set-start"),
+    setEnd: document.getElementById("set-end"),
+    selectedDuration: document.getElementById("selected-duration"),
+    qualityOptions: document.getElementById("quality-options"),
+    clipDuration: document.getElementById("clip-duration"),
+    clipQuality: document.getElementById("clip-quality"),
+    download: document.getElementById("download"),
+    jobStatus: document.getElementById("job-status"),
+    progressTrack: document.getElementById("progress-track"),
+    downloadRow: document.getElementById("download-row"),
+    downloadLink: document.getElementById("download-link")
+  };
+
+  /* ---------- helpers ---------- */
+
+  function formatTime(totalSeconds) {
+    var s = Math.max(0, Math.floor(totalSeconds || 0));
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    return pad(h) + ":" + pad(m) + ":" + pad(sec);
+  }
+
+  function formatShort(totalSeconds) {
+    var s = Math.max(0, Math.floor(totalSeconds || 0));
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    return h > 0 ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec);
+  }
+
+  function parseTimestamp(value) {
+    var text = String(value || "").trim();
+    if (!text) return null;
+    var parts = text.split(":").map(Number);
+    if (!parts.length || parts.some(function (n) { return !Number.isInteger(n) || n < 0; })) return null;
+    var h = 0, m = 0, s = 0;
+    if (parts.length === 3) {
+      h = parts[0]; m = parts[1]; s = parts[2];
+      if (m > 59 || s > 59) return null;
+    } else if (parts.length === 2) {
+      m = parts[0]; s = parts[1];
+      if (s > 59) return null;
+    } else if (parts.length === 1) {
+      // A single value is total seconds, matching the backend parser.
+      s = parts[0];
+    } else {
+      return null;
+    }
+    return h * 3600 + m * 60 + s;
+  }
+
+  function extractVideoId(raw) {
+    var url = String(raw || "").trim();
+    var patterns = [
+      /youtube\.com\/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})/,
+      /youtu\.be\/([A-Za-z0-9_-]{11})/,
+      /youtube\.com\/live\/([A-Za-z0-9_-]{11})/,
+      /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      var match = url.match(patterns[i]);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  function setStatus(node, message, kind) {
+    if (!message) {
+      node.className = "status hidden";
+      node.textContent = "";
+      return;
+    }
+    node.className = "status" + (kind ? " " + kind : "");
+    node.textContent = message;
+  }
+
+  function showProgress(show) {
+    el.progressTrack.style.display = show ? "block" : "none";
+  }
+
+  async function api(path, options) {
+    var response = await fetch(path, options);
+    var text = await response.text();
+    var data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch (e) { data = null; }
+    }
+    if (!response.ok) {
+      var detail = data && (data.detail || data.message);
+      throw new Error(detail || ("Request failed (" + response.status + ")."));
+    }
+    return data || {};
+  }
+
+  /* ---------- YouTube player ---------- */
+
+  window.onYouTubeIframeAPIReady = function () {
+    state.ytReady = true;
+    if (state.videoId) mountPlayer(state.videoId);
+  };
+
+  function loadYouTubeApi() {
+    if (window.YT && window.YT.Player) {
+      state.ytReady = true;
+      return;
+    }
+    if (document.getElementById("yt-iframe-api")) return;
+    var tag = document.createElement("script");
+    tag.id = "yt-iframe-api";
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  }
+
+  function mountPlayer(videoId) {
+    if (!state.ytReady) {
+      loadYouTubeApi();
+      return;
+    }
+    el.playerEmpty.style.display = "none";
+
+    if (state.player) {
+      state.player.loadVideoById(videoId);
+      return;
+    }
+
+    var host = document.createElement("div");
+    host.id = "yt-player";
+    el.playerShell.appendChild(host);
+
+    state.player = new YT.Player(host, {
+      videoId: videoId,
+      playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+      events: {
+        onReady: function () {
+          state.playerReady = true;
+          startPlayheadTracking();
+        },
+        onStateChange: function () { startPlayheadTracking(); }
+      }
+    });
+  }
+
+  function startPlayheadTracking() {
+    if (state.timer) return;
+    state.timer = window.setInterval(function () {
+      if (!state.player || !state.playerReady) return;
+      var current = 0;
+      try { current = state.player.getCurrentTime() || 0; } catch (e) { return; }
+      if (!state.duration) return;
+      var pct = Math.min(100, Math.max(0, (current / state.duration) * 100));
+      el.playhead.style.left = pct + "%";
+    }, 250);
+  }
+
+  function currentPlayhead() {
+    if (!state.player || !state.playerReady) return null;
+    try { return state.player.getCurrentTime() || 0; } catch (e) { return null; }
+  }
+
+  function seekTo(seconds) {
+    if (!state.player || !state.playerReady) return;
+    try {
+      state.player.seekTo(seconds, true);
+      state.player.playVideo();
+    } catch (e) { /* player not ready */ }
+  }
+
+  /* ---------- timeline ---------- */
+
+  function secondsAt(event) {
+    var rect = el.timeline.getBoundingClientRect();
+    var x = (event.touches ? event.touches[0].clientX : event.clientX) - rect.left;
+    var ratio = Math.min(1, Math.max(0, x / rect.width));
+    return ratio * (state.duration || 0);
+  }
+
+  function positionsFromInputs() {
+    var total = state.duration || 0;
+    var start = parseTimestamp(el.start.value);
+    var end = parseTimestamp(el.end.value);
+    if (start === null) start = 0;
+    if (end === null) end = total;
+    start = Math.min(start, total);
+    end = Math.min(end, total);
+    return {
+      startPct: total ? (start / total) * 100 : 0,
+      endPct: total ? (end / total) * 100 : 100
+    };
+  }
+
+  function renderTimeline() {
+    var p = positionsFromInputs();
+    el.handleStart.style.left = p.startPct + "%";
+    el.handleEnd.style.left = p.endPct + "%";
+    el.fill.style.left = p.startPct + "%";
+    el.fill.style.width = Math.max(0, p.endPct - p.startPct) + "%";
+    updateDurationLabels();
+  }
+
+  function updateDurationLabels() {
+    var start = parseTimestamp(el.start.value) || 0;
+    var end = parseTimestamp(el.end.value) || 0;
+    var diff = Math.max(0, end - start);
+    el.selectedDuration.textContent = formatShort(diff);
+    el.clipDuration.textContent = formatShort(diff);
+  }
+
+  function applyInputsFromSeconds(startSec, endSec) {
+    if (state.duration) {
+      startSec = Math.min(startSec, state.duration);
+      endSec = Math.min(endSec, state.duration);
+    }
+    el.start.value = formatTime(startSec);
+    el.end.value = formatTime(endSec);
+    renderTimeline();
+  }
+
+  function startDrag(which, event) {
+    if (!state.duration) return;
+    state.dragging = which;
+    event.preventDefault();
+  }
+
+  function onPointerMove(event) {
+    if (!state.dragging || !state.duration) return;
+    var seconds = secondsAt(event);
+    var start = parseTimestamp(el.start.value) || 0;
+    var end = parseTimestamp(el.end.value) || 0;
+    if (state.dragging === "start") {
+      start = Math.max(0, Math.min(seconds, end));
+    } else {
+      end = Math.min(state.duration, Math.max(seconds, start));
+    }
+    applyInputsFromSeconds(start, end);
+  }
+
+  function endDrag() {
+    if (!state.dragging) return;
+    if (state.dragging && state.duration) {
+      seekTo(state.dragging === "start"
+        ? (parseTimestamp(el.start.value) || 0)
+        : (parseTimestamp(el.end.value) || 0));
+    }
+    state.dragging = null;
+  }
+
+  el.handleStart.addEventListener("mousedown", function (e) { startDrag("start", e); });
+  el.handleEnd.addEventListener("mousedown", function (e) { startDrag("end", e); });
+  el.handleStart.addEventListener("touchstart", function (e) { startDrag("start", e); }, { passive: false });
+  el.handleEnd.addEventListener("touchstart", function (e) { startDrag("end", e); }, { passive: false });
+  window.addEventListener("mousemove", onPointerMove);
+  window.addEventListener("touchmove", onPointerMove, { passive: false });
+  window.addEventListener("mouseup", endDrag);
+  window.addEventListener("touchend", endDrag);
+
+  el.start.addEventListener("input", renderTimeline);
+  el.end.addEventListener("input", renderTimeline);
+  el.start.addEventListener("blur", function () { applyInputsFromSeconds(parseTimestamp(el.start.value) || 0, parseTimestamp(el.end.value) || (state.duration || 0)); });
+  el.end.addEventListener("blur", function () { applyInputsFromSeconds(parseTimestamp(el.start.value) || 0, parseTimestamp(el.end.value) || (state.duration || 0)); });
+
+  el.timeline.addEventListener("click", function (event) {
+    if (!state.duration || state.dragging) return;
+    seekTo(secondsAt(event));
+  });
+
+  el.setStart.addEventListener("click", function () {
+    var at = currentPlayhead();
+    if (at === null) { setStatus(el.loadStatus, "Load a video before using the player.", "busy"); return; }
+    var end = parseTimestamp(el.end.value) || (state.duration || 0);
+    applyInputsFromSeconds(Math.min(at, end), end);
+  });
+
+  el.setEnd.addEventListener("click", function () {
+    var at = currentPlayhead();
+    if (at === null) { setStatus(el.loadStatus, "Load a video before using the player.", "busy"); return; }
+    var start = parseTimestamp(el.start.value) || 0;
+    applyInputsFromSeconds(start, Math.max(at, start));
+  });
+
+  /* ---------- quality ---------- */
+
+  var QUALITY_NOTES = { 720: "HD", 1080: "Full HD", 1440: "QHD", 2160: "4K" };
+
+  function renderQualities() {
+    el.qualityOptions.innerHTML = "";
+    var available = state.qualities;
+
+    if (!available.length) {
+      var placeholder = document.createElement("div");
+      placeholder.className = "hint";
+      placeholder.textContent = "No quality options loaded yet.";
+      el.qualityOptions.appendChild(placeholder);
+      updateClipQualityLabel();
+      return;
+    }
+
+    available.forEach(function (height) {
+      var option = document.createElement("div");
+      option.className = "quality" + (height === state.quality ? " selected" : "");
+      option.setAttribute("role", "button");
+      option.tabIndex = 0;
+      option.innerHTML =
+        '<div class="q-label">' + height + "p</div>" +
+        '<div class="q-note">' + (QUALITY_NOTES[height] || "HD") + "</div>";
+
+      function choose() {
+        state.quality = height;
+        renderQualities();
+      }
+      option.addEventListener("click", choose);
+      option.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
+      });
+      el.qualityOptions.appendChild(option);
+    });
+
+    updateClipQualityLabel();
+  }
+
+  function updateClipQualityLabel() {
+    el.clipQuality.textContent = state.quality + "p · MP4 when supported";
+  }
+
+  /* ---------- load flow ---------- */
+
+  async function loadVideo() {
+    var raw = el.url.value.trim();
+    if (!raw) {
+      setStatus(el.loadStatus, "Paste a YouTube URL first.", "error");
+      return;
+    }
+    var videoId = extractVideoId(raw);
+    if (!videoId) {
+      setStatus(el.loadStatus, "Enter a valid YouTube video URL.", "error");
+      return;
+    }
+
+    el.load.disabled = true;
+    setStatus(el.loadStatus, "Reading video info…", "busy");
+    resetJobUI();
+
+    state.url = raw;
+    state.videoId = videoId;
+
+    // Mount the player immediately; it is independent of yt-dlp.
+    mountPlayer(videoId);
+    if (!state.ytReady) loadYouTubeApi();
+
+    try {
+      var info = await api("/api/info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: raw })
+      });
+
+      state.duration = Number(info.duration) || 0;
+      state.qualities = Array.isArray(info.qualities) ? info.qualities.slice().sort(function (a, b) { return a - b; }) : [];
+
+      elsShowVideoMeta(info);
+      applyInputsFromSeconds(0, state.duration);
+      el.scaleEnd.textContent = state.duration ? formatShort(state.duration) : "--:--";
+
+      if (state.qualities.length) {
+        if (state.qualities.indexOf(state.quality) === -1) {
+          state.quality = state.qualities[0];
+        }
+        renderQualities();
+        setStatus(el.loadStatus, "Video loaded. Drag the handles to pick your segment.", "success");
+      } else {
+        renderQualities();
+        setStatus(el.loadStatus, info.message || "No downloadable video formats at 720p or above were found. The preview still works.", "busy");
+      }
+
+      el.download.disabled = !state.qualities.length;
+    } catch (error) {
+      // The player may still work even when metadata extraction fails.
+      setStatus(el.loadStatus, error.message, "error");
+      el.download.disabled = true;
+    } finally {
+      el.load.disabled = false;
+    }
+  }
+
+  function elsShowVideoMeta(info) {
+    el.videoMeta.style.display = "flex";
+    el.metaTitle.textContent = info.title || "YouTube video";
+    el.metaDuration.textContent = state.duration ? formatShort(state.duration) : "--:--";
+  }
+
+  /* ---------- download flow ---------- */
+
+  function resetJobUI() {
+    if (state.pollTimer) {
+      window.clearInterval(state.pollTimer);
+      state.pollTimer = null;
+    }
+    setStatus(el.jobStatus, "");
+    showProgress(false);
+    el.downloadRow.style.display = "none";
+    el.download.disabled = !state.qualities.length;
+  }
+
+  async function startDownload() {
+    if (!state.videoId) {
+      setStatus(el.jobStatus, "Load a video first.", "error");
+      return;
+    }
+    var startSec = parseTimestamp(el.start.value);
+    var endSec = parseTimestamp(el.end.value);
+    if (startSec === null || endSec === null) {
+      setStatus(el.jobStatus, "Timestamps must look like HH:MM:SS or MM:SS.", "error");
+      return;
+    }
+    if (endSec <= startSec) {
+      setStatus(el.jobStatus, "End time must be later than start time.", "error");
+      return;
+    }
+    if (endSec - startSec > 4 * 3600) {
+      setStatus(el.jobStatus, "Please select a segment of four hours or less.", "error");
+      return;
+    }
+
+    resetJobUI();
+    el.download.disabled = true;
+    setStatus(el.jobStatus, "Starting the job…", "busy");
+    showProgress(true);
+
+    try {
+      var job = await api("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: state.url,
+          start: formatTime(startSec),
+          end: formatTime(endSec),
+          quality: state.quality
+        })
+      });
+      pollJob(job.job_id);
+    } catch (error) {
+      showProgress(false);
+      setStatus(el.jobStatus, error.message, "error");
+      el.download.disabled = false;
+    }
+  }
+
+  function pollJob(jobId) {
+    state.pollTimer = window.setInterval(async function () {
+      try {
+        var job = await api("/api/jobs/" + encodeURIComponent(jobId));
+        setStatus(el.jobStatus, job.progress || "Working…", "busy");
+
+        if (job.status === "completed") {
+          window.clearInterval(state.pollTimer);
+          state.pollTimer = null;
+          showProgress(false);
+          setStatus(el.jobStatus, "Ready to download.", "success");
+          el.downloadLink.href = job.download_url || ("/api/jobs/" + encodeURIComponent(jobId) + "/file");
+          el.downloadRow.style.display = "block";
+          el.download.disabled = false;
+        } else if (job.status === "failed") {
+          window.clearInterval(state.pollTimer);
+          state.pollTimer = null;
+          showProgress(false);
+          setStatus(el.jobStatus, job.error || "Processing failed.", "error");
+          el.download.disabled = false;
+        }
+      } catch (error) {
+        window.clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        showProgress(false);
+        setStatus(el.jobStatus, error.message, "error");
+        el.download.disabled = false;
+      }
+    }, 1500);
+  }
+
+  /* ---------- wire up ---------- */
+
+  el.load.addEventListener("click", loadVideo);
+  el.url.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); loadVideo(); }
+  });
+  el.download.addEventListener("click", startDownload);
+
+  loadYouTubeApi();
+  var ytWait = window.setInterval(function () {
+    if (state.ytReady) window.clearInterval(ytWait);
+  }, 250);
+  window.setTimeout(function () { window.clearInterval(ytWait); }, YT_READY_TIMEOUT);
+
+  renderQualities();
+  renderTimeline();
+})();
+</script>
+</body>
+</html>
