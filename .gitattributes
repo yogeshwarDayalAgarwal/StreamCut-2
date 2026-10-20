@@ -1,0 +1,14 @@
+# Keep Windows batch files as CRLF so their labels and `goto` work correctly
+# when the repo is checked out on Windows.
+*.bat text eol=crlf
+
+# Shell scripts and other text stay LF.
+*.sh text eol=lf
+*.py text eol=lf
+*.spec text eol=lf
+
+# Editor/asset binaries
+*.png binary
+*.ico binary
+*.exe binary
+*.mp4 binary

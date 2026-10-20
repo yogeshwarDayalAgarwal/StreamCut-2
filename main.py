@@ -15,9 +15,35 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-ROOT = Path(__file__).resolve().parent
+def _resource_root() -> Path:
+    """Directory holding bundled read-only resources (static/, ffmpeg/).
+
+    Under PyInstaller the app runs from a temporary extraction directory
+    (``sys._MEIPASS``); running from source it is just this file's directory.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent
+
+
+def _output_root() -> Path:
+    """Writable directory for job output.
+
+    Never lives inside the bundle: a one-file exe's extraction directory is
+    deleted on exit. Packaged builds write next to the exe so the editor can
+    actually find the finished clips.
+    """
+    override = os.environ.get("STREAMCUT_OUTPUT_DIR")
+    if override:
+        return Path(override).resolve()
+    if getattr(sys, "frozen", False):
+        return (Path(sys.executable).resolve().parent / "StreamCut downloads").resolve()
+    return (Path(__file__).resolve().parent / "downloads").resolve()
+
+
+ROOT = _resource_root()
 STATIC = ROOT / "static"
-OUTPUT = Path(os.environ.get("STREAMCUT_OUTPUT_DIR", str(ROOT / "downloads"))).resolve()
+OUTPUT = _output_root()
 OUTPUT.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="StreamCut", version="0.1.0")
@@ -77,6 +103,24 @@ def format_seconds(value: float) -> str:
     return f"{max(0.0, float(value)):.3f}"
 
 
+def ffmpeg_path(name: str = "ffmpeg") -> Optional[str]:
+    """Locate ffmpeg/ffprobe, preferring a copy bundled with the application.
+
+    A packaged Windows build ships its own binaries so the editor needs nothing
+    installed. Falls back to PATH so running from source keeps working.
+    Paths are resolved because yt-dlp receives the parent directory and
+    validates it exists.
+    """
+    bundled = ROOT / "ffmpeg" / (name + ".exe" if os.name == "nt" else name)
+    if bundled.exists():
+        return str(bundled.resolve())
+    bundled_plain = ROOT / "ffmpeg" / name
+    if bundled_plain.exists():
+        return str(bundled_plain.resolve())
+    found = shutil.which(name)
+    return str(Path(found).resolve()) if found else None
+
+
 def ytdlp_command() -> list[str]:
     """Return the yt-dlp invocation, preferring the installed Python module.
 
@@ -92,11 +136,46 @@ def ytdlp_command() -> list[str]:
     return []
 
 
+def ytdlp_ffmpeg_args() -> list[str]:
+    """Tell yt-dlp where ffmpeg lives, so post-processing works when bundled."""
+    ffmpeg = ffmpeg_path("ffmpeg")
+    if ffmpeg:
+        return ["--ffmpeg-location", str(Path(ffmpeg).parent)]
+    return []
+
+
+def ytdlp_common_args() -> list[str]:
+    """Flags every yt-dlp invocation needs, packaged or not."""
+    return ytdlp_network_args() + ytdlp_ffmpeg_args()
+
+
+def ytdlp_network_args() -> list[str]:
+    """Optional transport flags, driven by environment variables.
+
+    A datacenter IP (Render, AWS, DigitalOcean, ...) is frequently refused by
+    YouTube before the request is even evaluated, and StreamCut was originally
+    hosted on one. The desktop build runs on a residential connection and does
+    not need this, but the options remain for anyone redeploying to a server:
+    setting STREAMCUT_PROXY_URL routes both metadata and media traffic through a
+    residential proxy.
+
+    STREAMCUT_FORCE_IPV4 makes all connections over IPv4, which helps on hosts
+    whose IPv6 range is treated more harshly than their IPv4 range.
+    """
+    args = []
+    proxy = os.environ.get("STREAMCUT_PROXY_URL", "").strip()
+    if proxy:
+        args += ["--proxy", proxy]
+    if os.environ.get("STREAMCUT_FORCE_IPV4", "").strip().lower() in ("1", "true", "yes"):
+        args += ["--force-ipv4"]
+    return args
+
+
 def require_dependencies():
     missing = []
     if not ytdlp_command():
         missing.append("yt-dlp")
-    if shutil.which("ffmpeg") is None:
+    if ffmpeg_path("ffmpeg") is None:
         missing.append("ffmpeg")
     if missing:
         raise HTTPException(503, "Missing dependencies: " + ", ".join(missing) +
@@ -104,9 +183,9 @@ def require_dependencies():
 
 
 # Player clients to try, in order. YouTube serves each client a slightly different
-# response, and on datacenter IPs (like Render's) one client may fail with
-# "Failed to extract any player response" while another succeeds. Trying more
-# than one makes extraction resilient to that without changing behavior locally.
+# response, and on datacenter IPs one client may fail with "Failed to extract any
+# player response" while another succeeds. Trying more than one makes extraction
+# resilient to that without changing behavior on a residential connection.
 PLAYER_CLIENT_FALLBACKS = (None, "web,mweb,tv", "android,web")
 
 
@@ -118,14 +197,25 @@ def ytdlp_metadata(url: str, timeout: int = 60) -> tuple[int, str, str]:
     player-response problem, so the happy path stays a single subprocess.
     """
     base = ytdlp_command()
+    net = ytdlp_common_args()
     last = (1, "", "yt-dlp is not installed.")
     for client in PLAYER_CLIENT_FALLBACKS:
-        cmd = base + ["--dump-single-json", "--no-warnings", "--skip-download"]
+        cmd = base + ["--dump-single-json", "--no-warnings", "--skip-download"] + net
         if client:
             cmd += ["--extractor-args", f"youtube:player_client={client}"]
         cmd.append(url)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                # Force UTF-8: Windows defaults to cp1252, but yt-dlp emits UTF-8.
+                # Video titles with accents, emoji, or CJK text would otherwise
+                # raise UnicodeDecodeError and fail extraction.
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
             last = (1, "", "Timed out while reading video information.")
             continue
@@ -149,7 +239,7 @@ def health():
     missing = []
     if not ytdlp_command():
         missing.append("yt-dlp")
-    if shutil.which("ffmpeg") is None:
+    if ffmpeg_path("ffmpeg") is None:
         missing.append("ffmpeg")
     return {"ok": not missing, "missing": missing}
 
@@ -159,20 +249,21 @@ def video_info(req: InfoRequest):
     url = validate_youtube_url(req.url)
     code, stdout, stderr = ytdlp_metadata(url)
     if code != 0:
-        # Keep the UI message actionable while preserving the real cause in Render logs.
+        # Keep the UI message actionable while printing the real cause to the
+        # console window and StreamCut log file for troubleshooting.
         detail = (stderr or stdout or "yt-dlp exited without an error message").strip()
         print(f"[StreamCut] yt-dlp metadata extraction failed for {url}: {detail[-5000:]}", flush=True)
         lowered = detail.lower()
         if "sign in to confirm" in lowered or "not a bot" in lowered or "po token" in lowered:
-            message = "YouTube blocked server-side extraction with an authentication/bot check. The video can still play in the browser; check Render logs for details."
+            message = "YouTube asked for a sign-in or bot check instead of returning the video. This is usually temporary; try again in a minute."
         elif "video unavailable" in lowered or "private video" in lowered:
-            message = "YouTube reports this video as unavailable or private to the server. Check the video visibility and Render logs."
+            message = "YouTube reports this video as unavailable or private. Check that the video is public and still online."
         elif "javascript runtime" in lowered or "challenge" in lowered:
-            message = "YouTube extraction needs its JavaScript challenge runtime. Redeploy the latest StreamCut Docker image and check Render logs."
+            message = "YouTube's JavaScript challenge could not be solved. Make sure StreamCut is fully extracted and not blocked by antivirus, then try again."
         elif "player response" in lowered:
-            message = "YouTube did not return a usable player response to the server. This is usually a datacenter-IP block on Render; try again shortly, or run StreamCut locally. Check Render logs for details."
+            message = "YouTube did not return a usable player response. This is usually a datacenter-IP block; StreamCut works best on a normal home internet connection. See the StreamCut log for details."
         else:
-            message = "StreamCut could not extract video formats from YouTube. Check the Render logs for the underlying yt-dlp error."
+            message = "StreamCut could not read the video's formats from YouTube. See the StreamCut log for the underlying yt-dlp error."
         raise HTTPException(400, message)
     try:
         data = json.loads(stdout)
@@ -276,7 +367,7 @@ def create_download(req: DownloadRequest):
     # Downloading natively and cutting in a second ffmpeg pass is dramatically
     # faster while keeping frame-accurate boundaries.
     source_template = str(job_dir / "source.%(ext)s")
-    fetch_cmd = ytdlp_command() + [
+    fetch_cmd = ytdlp_command() + ytdlp_common_args() + [
         "--no-warnings", "--newline",
         "--merge-output-format", "mp4",
         "-f", fmt, "-o", source_template, url,
@@ -302,7 +393,17 @@ def create_download(req: DownloadRequest):
 
     def run(cmd, on_line=None):
         """Run a subprocess, streaming output lines to a callback."""
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            # UTF-8 with replacement: Windows would otherwise decode yt-dlp and
+            # ffmpeg output as cp1252 and crash on non-ASCII characters.
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
         last_line = ""
         for line in proc.stdout:
             line = line.strip()
@@ -341,7 +442,8 @@ def create_download(req: DownloadRequest):
 
             set_progress("Cutting the selected segment…")
             cut_cmd = [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                ffmpeg_path("ffmpeg") or "ffmpeg",
+                "-hide_banner", "-loglevel", "error", "-y",
                 "-ss", format_seconds(cut_start),
                 "-i", str(source),
                 "-t", format_seconds(duration),

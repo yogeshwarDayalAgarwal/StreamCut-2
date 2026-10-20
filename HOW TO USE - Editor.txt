@@ -1,0 +1,47 @@
+# StreamCut — how to use it
+
+A video clipper. Paste a YouTube link, pick a start and end time, download just
+that part as an MP4.
+
+Nothing needs to be installed.
+
+## 1. Start it
+
+Double-click **StreamCut.exe**.
+
+A black console window opens and your web browser opens by itself. Leave the
+console window open while you work — closing it closes StreamCut.
+
+## 2. Use it
+
+1. Paste a YouTube link into the box and click **Load**.
+2. Wait for the preview and the quality options to appear.
+3. Set the segment you want. Pick whichever feels easier:
+   - Type times into the **Start** and **End** boxes, or
+   - Drag the two handles on the timeline, or
+   - Move the playhead and click **Set start** / **Set end**.
+4. Pick a quality (720p, 1080p, or higher if the video has it).
+5. Click **Download**. A progress bar shows what is happening.
+6. When it finishes, click **Save** and choose where to put the file.
+
+## 3. Where the files go
+
+Finished clips are saved in a folder called **StreamCut downloads**, created
+right next to `StreamCut.exe`.
+
+## Notes
+
+- Only the segment you asked for is included. Nothing is trimmed off the start
+  or the end, so you never lose a frame you needed.
+- Long videos take longer, because the original has to be fetched first. A
+  clip from a 2-hour stream can take a couple of minutes.
+- Very long or very high-quality (4K) clips take the most time.
+- If a video will not load, it may be private, age-restricted, or region-locked.
+  Try a different video to check StreamCut itself is fine.
+
+## If something goes wrong
+
+A file called **StreamCut log.txt** appears next to `StreamCut.exe`. If
+StreamCut will not start or a download keeps failing, send that file on.
+
+To stop StreamCut, just close the black console window.

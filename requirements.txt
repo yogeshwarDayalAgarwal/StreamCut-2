@@ -5,3 +5,7 @@ pydantic>=2.0
 # HTTP 403 from YouTube's media CDN on the download step even though metadata
 # extraction still succeeds. Bump this deliberately when YouTube breaks again.
 yt-dlp[default]>=2026.8.19
+# Required for SOCKS5 proxies (STREAMCUT_PROXY_URL). yt-dlp[default] does not
+# include it, and without it a socks5:// proxy URL fails to connect. Needed when
+# running on a datacenter IP, which YouTube blocks.
+pysocks>=1.7.1

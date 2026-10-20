@@ -58,8 +58,9 @@ source's 25fps, so none of them drop frames:
 | stream copy | 0.15s | lossless, but boundaries drift |
 
 `ultrafast` crf20 is the current default: roughly 2.5x faster than `veryfast`
-with the same frame count, which matters most on Render's free-tier CPU.
-Reduce crf to 23 if size matters more than quality on large jobs.
+with the same frame count, which keeps encoding off the critical path on
+modest laptop CPUs. Reduce crf to 23 if size matters more than quality on
+large jobs.
 
 ## yt-dlp version requirement
 
@@ -79,7 +80,8 @@ breaks the download step again, bump that pin rather than adding workarounds.
 
 ## "Failed to extract any player response" (datacenter IPs)
 
-A separate failure seen on Render, not locally:
+A failure that appears when the app runs on a datacenter IP (Render, AWS,
+DigitalOcean, ...) but never locally:
 
 ```
 ERROR: [youtube] <id>: Failed to extract any player response
@@ -94,9 +96,12 @@ error text looks like a player-response or bot-check problem. Other errors
 would not help.
 
 The fallbacks make extraction resilient but are not a guarantee. If YouTube
-starts hard-blocking Render's IP range, the durable fixes are a proxy
-(`--proxy`) or running the app on a different host. The `/api/info` error
-message says as much when this happens.
+starts hard-blocking an IP range, the durable fixes are a proxy (`--proxy`) or
+running the app on a different network. The `/api/info` error message says as
+much when this happens.
+
+Since StreamCut now ships as a local desktop app, this failure mode only comes
+up if someone redeploys it to a server.
 
 ## Portrait / vertical videos
 
@@ -114,15 +119,88 @@ Both `/api/info` and `/api/download` now work off the **short edge**:
 Orientation is read from the `/api/info` cache (`INFO_CACHE`) when present, so a
 download does not repeat the metadata extraction.
 
-## Docker / Render notes
+## YouTube blocking datacenter IPs
 
-- The image installs Deno because yt-dlp needs a JavaScript runtime to solve
-  YouTube's challenge. Metadata can succeed without it while downloads fail.
-- `requirements.txt` is copied and installed before the rest of the source, so
+YouTube blocks traffic from datacenter IP ranges. This is a network-layer
+decision made before the request reaches yt-dlp, so no flag, client list, or
+cookie setting fixes it. See the section above for the error text. The remedies
+are a residential proxy (`STREAMCUT_PROXY_URL`) or running from a network YouTube
+treats as residential.
+
+This was discovered while running StreamCut as a hosted web app, and it is the
+reason the project now ships as a **Windows desktop app** instead: it runs on
+the editor's own machine, so requests leave from a normal residential
+connection and the block does not apply. It also removes hosting costs, a public
+URL to protect, and a server to maintain.
+
+## Windows desktop build notes
+
+Packaging targets that matter for a one-file PyInstaller build:
+
+- **Paths.** `static/` is read from the bundle (`sys._MEIPASS`); job output must
+  NOT be, because a one-file exe's extraction directory is deleted on exit.
+  `_resource_root()` and `_output_root()` in `main.py` handle the split, and
+  packaged output goes to a `StreamCut downloads` folder next to the exe.
+- **FFmpeg.** Bundled in a `ffmpeg/` folder inside the bundle. `ffmpeg_path()`
+  prefers it, resolves the path, and `--ffmpeg-location` is passed to yt-dlp so
+  merging works. Falls back to PATH when running from source.
+- **yt-dlp extractors** are loaded dynamically, so PyInstaller cannot see them.
+  `StreamCut.spec` uses `collect_all` for `yt_dlp` and `yt_dlp_ejs`.
+- **PyInstaller 6.x TOC format.** `collect_all()` returns `datas` as hook-style
+  2-tuples `(src, dest_dir)`, but entries appended to `Analysis.datas` after the
+  fact must be 3-tuples `(dest_name, src, "DATA")`. Appending the raw 2-tuples
+  fails with `ValueError: not enough values to unpack (expected 3, got 2)`.
+  Convert them with `format_binaries_and_datas()` rather than by hand: some
+  `collect_all` entries point at whole directories such as the `.dist-info`
+  folder, and naive conversion makes the writer fail with `IsADirectoryError`.
+  The same `ValueError` appears if `a.zipfiles` is passed to `EXE()`, which 6.x
+  removed. Both were fixed together.
+- **Ports.** The launcher picks a free port rather than hardcoding 8000, so a
+  second copy or another app cannot collide with it.
+- **Console build.** `console=True` keeps a window open. That gives the editor
+  visible progress and an obvious way to quit, and lets startup errors surface
+  instead of vanishing.
+- **Subprocess encoding.** `main.py` passes `encoding="utf-8"` to every
+  `subprocess.run`/`Popen`. Windows would otherwise decode yt-dlp and ffmpeg
+  output as cp1252 and raise `UnicodeDecodeError` on any video whose title
+  contains accents, emoji, or CJK text.
+
+### Verifying the build without Windows
+
+PyInstaller's analysis phase is platform-independent, so a macOS or Linux build
+catches missing hidden imports, bad spec paths, and TOC-format mistakes before
+ever touching Windows. Do that when changing `StreamCut.spec`:
+
+```bash
+python -m venv build-venv
+./build-venv/bin/pip install -r requirements.txt pyinstaller
+./build-venv/bin/python -m PyInstaller --clean --noconfirm \
+    --distpath dist-mac-test --workpath build-mac-test StreamCut.spec
+```
+
+A successful run proves the spec resolves every import. The resulting binary is
+macOS-only and is not what ships to the editor.
+
+The exe is large (~200 MB) mostly because of FFmpeg. That is the deliberate
+tradeoff for requiring zero installation on the target machine.
+
+`ffmpeg/`, `build/`, `dist/`, `build-venv/` and the runtime log are gitignored;
+`Build Windows exe.bat` refetches FFmpeg when needed.
+
+## If it is ever hosted again
+
+The project started as a hosted web app and was moved to a desktop app because
+YouTube blocks downloads from datacenter IP ranges. If it is ever deployed to a
+server again, these notes still apply:
+
+- The image needs Deno installed, because yt-dlp uses a JavaScript runtime to
+  solve YouTube's challenge. Metadata can succeed without it while downloads
+  fail.
+- Copy and install `requirements.txt` before the rest of the source so that
   application edits do not invalidate the dependency layer.
-- Render's filesystem is ephemeral. Finished clips only need to live long
+- A container's filesystem is ephemeral. Finished clips only need to live long
   enough for the browser to fetch them.
-- The free plan sleeps after idle periods and has limited CPU. The first
-  request after a sleep pays a cold-start cost, and long or high-resolution
-  jobs can be slow. Paid instances or a larger plan are worth considering if
-  jobs regularly exceed a few minutes.
+- A free-tier plan sleeps after idle periods and has limited CPU, so the first
+  request after a sleep pays a cold-start cost. A `STREAMCUT_PROXY_URL`
+  residential proxy is the only way to make YouTube extraction reliable from a
+  datacenter IP.

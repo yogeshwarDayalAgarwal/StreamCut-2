@@ -7,9 +7,30 @@ __pycache__/
 .venv/
 venv/
 env/
+build-venv/
 
 # Temporary job output (clips are meant to be short-lived)
 downloads/
+StreamCut downloads/
+
+# Packaged Windows app build artifacts
+build/
+dist/
+*.spec.bak
+
+# Local test builds (see NOTES.md)
+build-mac-test/
+dist-mac-test/
+
+# Produced by the GitHub Actions workflow if run locally
+StreamCut-Windows.zip
+shipping/
+
+# Bundled FFmpeg binaries (~210 MB; refetched by "Build Windows exe.bat")
+ffmpeg/
+
+# Runtime log written next to the packaged exe
+StreamCut log.txt
 
 # Local env files
 .env

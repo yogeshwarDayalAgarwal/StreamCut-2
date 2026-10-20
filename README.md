@@ -1,10 +1,10 @@
-# StreamCut — browser-based YouTube segment downloader MVP
+# StreamCut — YouTube segment downloader (Windows desktop app)
 
-StreamCut is a responsive browser UI with a YouTube embedded preview, start/end time inputs, draggable trim handles, a seek bar, source-quality lookup, and a backend job that uses yt-dlp + FFmpeg to process the selected range.
+StreamCut is a responsive browser UI with a YouTube embedded preview, start/end time inputs, draggable trim handles, a seek bar, source-quality lookup, and a backend job that uses yt-dlp + FFmpeg to process the selected range. It ships as a single self-contained `StreamCut.exe` that runs on the editor's own machine.
 
 ## Important limitations
 
-- This is an MVP starter project, not a deployed public website.
+- This is an MVP (minimum viable product) rather than a finished commercial product.
 - The browser preview uses YouTube's embedded player. Some videos do not allow embedding.
 - The backend uses `yt-dlp` to inspect and process source media. Only use it with videos you own or are authorized to process, and follow YouTube's terms and applicable law. It does not bypass DRM or access controls.
 - Format availability depends on the source. The interface excludes options below 720p and lists source heights found by yt-dlp. If the exact chosen height is absent, the backend may choose the nearest available height at or below the selected cap, but never intentionally below 720p.
@@ -17,6 +17,48 @@ StreamCut is a responsive browser UI with a YouTube embedded preview, start/end 
 - Python 3.10+
 - `yt-dlp`
 - FFmpeg
+
+## Windows desktop app (recommended for editors)
+
+The packaged Windows build runs StreamCut entirely on the user's own machine and
+IP. This avoids the datacenter-IP blocks that make the hosted version unreliable
+(see "YouTube blocking" below).
+
+**Building it** — two options:
+
+*On a Windows machine that has Python:*
+
+1. Double-click `Build Windows exe.bat`.
+2. Wait. It creates a build environment, downloads FFmpeg (~110 MB, one time),
+   and produces `dist\StreamCut.exe`.
+
+*Without any Windows machine, via GitHub Actions:*
+
+1. Push this repository to GitHub (the workflow lives in
+   `.github/workflows/build-windows.yml`).
+2. Open the repository's **Actions** tab, pick **Build Windows exe**, and click
+   **Run workflow**.
+3. When it finishes (~5 minutes), download the **StreamCut-Windows** artifact
+   from the run's summary page. It contains `StreamCut.exe` and the editor guide.
+4. For a permanent download link, push a version tag instead:
+   `git tag v1.0.0 && git push origin v1.0.0`. The exe is attached to a Release.
+
+The runner only *builds* the exe; it never downloads from YouTube, so YouTube's
+datacenter-IP blocking does not apply. The exe still runs on the editor's own
+residential connection. The workflow also smoke-tests the built exe, so a broken
+build fails in CI instead of reaching the editor.
+
+**Using it:**
+
+1. Copy `StreamCut.exe` anywhere on the target machine.
+2. Double-click it. A console window opens and the browser opens automatically.
+3. Finished clips land in a `StreamCut downloads` folder next to the exe.
+4. Close the console window to quit.
+
+Python and FFmpeg are bundled inside the exe. The editor installs nothing.
+
+`launcher.py` is the entry point and `StreamCut.spec` is the PyInstaller
+definition. `fetch_ffmpeg.py` downloads the FFmpeg binaries the build bundles.
 
 ### macOS (Homebrew)
 
@@ -77,28 +119,45 @@ the measured comparisons.
 - `GET /api/jobs/{job_id}`
 - `GET /api/jobs/{job_id}/file`
 
-## Deploy to GitHub + Render
+## Building the Windows app
 
-1. Commit and push this folder's contents to the root of your GitHub repository (not the ZIP itself). `.gitignore` keeps `.venv/`, `downloads/`, and caches out of the repo.
-2. In Render, choose **New + → Web Service**, connect your GitHub account, and select this repository.
-3. Set **Language/Runtime** to **Docker** if Render does not detect the Dockerfile automatically.
-4. Leave Dockerfile path as `./Dockerfile`, choose a region, and create the service.
-5. Render builds the image: it installs FFmpeg, Deno, and the Python dependencies, then starts the app on the port Render supplies.
-6. Open the generated `https://...onrender.com` URL and test `/api/health`.
+The app ships as a single `StreamCut.exe` that bundles Python and FFmpeg. The
+editor installs nothing.
 
-The `render.yaml` file is an optional Blueprint configuration. If you create the service manually, use the settings above.
+**Build it once, on a Windows machine with Python installed:**
 
-Because Render auto-deploys on push, a simple workflow is: edit locally, test with `uvicorn main:app --reload`, then `git push` to release.
+1. Double-click `Build Windows exe.bat`.
+2. Wait. It creates a build environment, downloads FFmpeg (~110 MB, one time),
+   and produces `dist\StreamCut.exe`.
+
+**Ship these two files to the editor:**
+
+- `dist\StreamCut.exe`
+- `HOW TO USE - Editor.txt`
+
+**How the editor uses it:**
+
+1. Put `StreamCut.exe` anywhere.
+2. Double-click it. A console window opens, and the browser opens automatically.
+3. Finished clips land in a `StreamCut downloads` folder next to the exe.
+4. Close the console window to quit.
+
+### Why an app instead of a website
+
+A hosted version was tried first and abandoned. YouTube blocks downloads from
+datacenter IP ranges, which is exactly what cloud hosts use. Running locally
+means requests come from a normal residential connection, so the block does not
+apply. It also removes hosting costs, a public URL that needs protecting, and a
+server to maintain.
 
 ### Keeping yt-dlp current
 
 If downloads start failing with an HTTP 403 while metadata still works, the
-yt-dlp pin in `requirements.txt` is almost certainly stale. Bump
-`yt-dlp>=...` to the newest release, push, and let Render rebuild.
+yt-dlp pin in `requirements.txt` is almost certainly stale. Bump `yt-dlp>=...`
+to the newest release and rebuild.
 
-### Public deployment warning
+If you want the editor to always get the newest yt-dlp without a rebuild,
+`Build Windows exe.bat` can be changed to install the latest at build time, at
+the cost of reproducible builds.
 
-This MVP does not include user authentication or usage quotas. Anyone who discovers the public URL may be able to submit processing requests. Do not use it as an unrestricted public service until access controls, rate limits, concurrent-job limits, and temporary-file cleanup are implemented. For a private editor workflow, add a shared access gate before sharing the URL broadly.
-
-Render free instances can sleep while idle, and their local filesystem is ephemeral. Large/long jobs may exceed free-instance resource or timeout limits. Test with a short clip first.
 

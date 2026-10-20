@@ -1,0 +1,136 @@
+# Builds StreamCut.exe on GitHub's Windows runners, so no Windows machine is
+# needed locally.
+#
+# Trigger it from the Actions tab ("Run workflow"), or push a tag like v1.0.0 to
+# also attach the exe to a GitHub Release.
+#
+# The runner only BUILDS the exe. It never downloads from YouTube, so YouTube's
+# datacenter-IP blocking does not apply here. The editor runs the finished exe on
+# their own machine, on a residential connection.
+
+name: Build Windows exe
+
+on:
+  # Lets you start a build by hand from the Actions tab.
+  workflow_dispatch:
+  # Builds on every push to main, and on version tags. Pushing a tag like
+  # v1.0.0 additionally publishes a Release with the exe attached.
+  #
+  # A `paths:` filter is deliberately not used. Mixing `paths` with `tags` makes
+  # GitHub skip tag builds, because the tag ref has no changed-file set.
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Pinned to a version PyInstaller 6.x supports well.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        # Matches the ranges used by "Build Windows exe.bat", so the local and
+        # CI builds stay equivalent.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0,<7"
+
+      - name: Download FFmpeg
+        # Cached because the archive is ~110 MB and rarely changes. The key
+        # includes the script hash so editing fetch_ffmpeg.py refetches.
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('fetch_ffmpeg.py') }}
+
+      - name: Fetch FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: python fetch_ffmpeg.py
+
+      - name: Verify FFmpeg is present
+        # Fails loudly rather than shipping an exe that cannot cut video.
+        run: |
+          if (!(Test-Path "ffmpeg\ffmpeg.exe")) { throw "ffmpeg.exe missing" }
+          if (!(Test-Path "ffmpeg\ffprobe.exe")) { throw "ffprobe.exe missing" }
+          .\ffmpeg\ffmpeg.exe -version | Select-Object -First 1
+
+      - name: Build the executable
+        run: python -m PyInstaller --clean --noconfirm StreamCut.spec
+
+      - name: Verify the executable exists
+        run: |
+          if (!(Test-Path "dist\StreamCut.exe")) { throw "dist\StreamCut.exe was not produced" }
+          Get-Item "dist\StreamCut.exe" | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Smoke test the executable
+        # Starting it launches a local server. If the packaging is broken the
+        # process exits and this step fails, instead of shipping a dud.
+        #
+        # The launcher writes its log next to the exe, so it appears in dist\.
+        # It reaches "Server is ready" before trying to open a browser, which
+        # makes that line a reliable signal on a headless runner.
+        shell: pwsh
+        run: |
+          $exe = "dist\StreamCut.exe"
+          $log = "dist\StreamCut log.txt"
+          # No one is around to dismiss an error dialog on a runner. The child
+          # inherits this because Start-Process does not reset the environment.
+          $env:STREAMCUT_NO_DIALOG = "1"
+          $proc = Start-Process -FilePath $exe -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 120; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-Path $log) {
+              $content = Get-Content $log -Raw -ErrorAction SilentlyContinue
+              if ($content -match "Server is ready") { $ok = $true; break }
+            }
+            if ($proc.HasExited) { break }
+          }
+          if (Test-Path $log) { Get-Content $log }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          if (-not $ok) { throw "The packaged app did not reach 'Server is ready'." }
+          Write-Host "StreamCut started and served its UI."
+
+      - name: Package the shipping bundle
+        # Bundles the exe with the editor's guide so the download is everything
+        # the editor needs in one zip.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path shipping | Out-Null
+          Copy-Item "dist\StreamCut.exe" shipping\
+          Copy-Item "HOW TO USE - Editor.txt" shipping\
+          Compress-Archive -Path "shipping\*" -DestinationPath "StreamCut-Windows.zip" -Force
+          Get-Item "StreamCut-Windows.zip" | Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamCut-Windows
+          # Keep the raw exe too, in case only that is wanted.
+          path: |
+            StreamCut-Windows.zip
+            dist/StreamCut.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach to a Release
+        # Only on tag pushes, and only if the tag looks like a version.
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            StreamCut-Windows.zip
+            dist/StreamCut.exe
+          generate_release_notes: true
