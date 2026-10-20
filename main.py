@@ -92,11 +92,22 @@ def parse_timestamp(value: str) -> int:
 class InfoRequest(BaseModel):
     url: str
 
+# Resolutions the UI can offer, low to high. Both landscape and portrait sources
+# are bucketed onto these values using their SHORT edge, so a 1080x1920 Short
+# reports 1080 rather than 1920.
+#
+# The list starts at 144 because low-resolution sources are common: plenty of
+# videos are only published at 240p or 360p, and those must remain downloadable.
+QUALITY_BUCKETS = (144, 240, 360, 480, 720, 1080, 1440, 2160)
+
+
 class DownloadRequest(BaseModel):
     url: str
     start: str
     end: str
-    quality: int = Field(ge=720, le=4320)
+    # No lower bound beyond 144: the requested resolution is a cap, and low
+    # values are legitimate for low-resolution sources.
+    quality: int = Field(ge=144, le=4320)
 
 def format_seconds(value: float) -> str:
     """Format a number of seconds as a plain decimal string for ffmpeg."""
@@ -291,13 +302,19 @@ def video_info(req: InfoRequest):
         if f.get("vcodec") in (None, "none"):
             continue
         edge = shorter_edge(f)
-        if edge is None or edge < 720:
+        if edge is None:
             continue
-        # Offer standard buckets only (720/1080/1440/2160) so the UI labels stay
-        # meaningful. Non-standard widths map down to the nearest bucket.
-        bucket = max((q for q in (720, 1080, 1440, 2160) if q <= edge), default=None)
-        if bucket:
-            qualities.append(bucket)
+        # Offer standard buckets only, so the UI labels stay meaningful.
+        # Non-standard widths map down to the nearest bucket. The list includes
+        # low resolutions because plenty of sources are only available at 240p,
+        # 360p, or 480p.
+        bucket = max((q for q in QUALITY_BUCKETS if q <= edge), default=None)
+        if bucket is None:
+            # Below the lowest bucket (for example a 100-pixel thumbnail-sized
+            # stream). Offer it as the smallest option rather than dropping it,
+            # since the requested resolution is only a cap.
+            bucket = QUALITY_BUCKETS[0]
+        qualities.append(bucket)
 
     heights = sorted(set(qualities))
     duration = data.get("duration")
@@ -308,7 +325,7 @@ def video_info(req: InfoRequest):
         "thumbnail": data.get("thumbnail"),
         "vertical": vertical,
         "qualities": heights,
-        "message": None if heights else "No downloadable video formats at 720p or above were found."
+        "message": None if heights else "No downloadable video formats were found for this video."
     }
     with LOCK:
         INFO_CACHE[url] = info
@@ -331,10 +348,14 @@ def create_download(req: DownloadRequest):
     job_dir.mkdir(parents=True, exist_ok=True)
 
     # Cap the SHORT edge at the requested resolution. yt-dlp's default sorting
-    # then picks the best stream within that cap, never below 720p. For portrait
-    # video the shorter edge is the width, so capping "height" there would treat
-    # a 1080x1920 clip as if it were 1920p. Orientation comes from the cached
-    # /api/info result when available, so this does not repeat the extraction.
+    # then picks the best stream within that cap. For portrait video the shorter
+    # edge is the width, so capping "height" there would treat a 1080x1920 clip
+    # as if it were 1920p. Orientation comes from the cached /api/info result
+    # when available, so this does not repeat the extraction.
+    #
+    # There is no lower floor. A low-resolution source such as 240p or 360p must
+    # still be downloadable, so the fallbacks step down as far as necessary
+    # rather than requiring 720p.
     q = int(req.quality)
     vertical = False
     with LOCK:
@@ -353,10 +374,10 @@ def create_download(req: DownloadRequest):
 
     edge = "width" if vertical else "height"
     fmt = (
-        f"bestvideo[{edge}<={q}][{edge}>=720]+bestaudio"
-        f"/best[{edge}<={q}][{edge}>=720]"
-        f"/bestvideo[{edge}>=720]+bestaudio"
-        f"/best[{edge}>=720]"
+        f"bestvideo[{edge}<={q}]+bestaudio"
+        f"/best[{edge}<={q}]"
+        f"/bestvideo+bestaudio"
+        f"/best"
     )
 
     # Stage 1: fetch the media with yt-dlp's native downloader.

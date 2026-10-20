@@ -426,7 +426,7 @@
   <section class="card">
     <h2>3. Choose download quality</h2>
     <div class="quality-options" id="quality-options"></div>
-    <p class="hint">Load a video to check which resolutions are available. Options below 720p are never offered.</p>
+    <p class="hint">Load a video to check which resolutions are available. Every resolution the source has, from 144p upward, can be downloaded.</p>
   </section>
 
   <section class="card">
@@ -777,10 +777,20 @@
 
   /* ---------- quality ---------- */
 
-  var QUALITY_NOTES = { 720: "HD", 1080: "Full HD", 1440: "QHD", 2160: "4K" };
+  var QUALITY_NOTES = {
+    144: "Very low",
+    240: "Low",
+    360: "SD",
+    480: "SD",
+    720: "HD",
+    1080: "Full HD",
+    1440: "QHD",
+    2160: "4K"
+  };
 
   function qualityNote(height) {
-    var note = QUALITY_NOTES[height] || "HD";
+    // Fall back to a plain descriptor rather than a wrong "HD" claim.
+    var note = QUALITY_NOTES[height] || (height + "p");
     return state.vertical ? note + " · Vertical" : note;
   }
 
@@ -873,7 +883,7 @@
         setStatus(el.loadStatus, "Video loaded. Drag the handles to pick your segment.", "success");
       } else {
         renderQualities();
-        setStatus(el.loadStatus, info.message || "No downloadable video formats at 720p or above were found. The preview still works.", "busy");
+        setStatus(el.loadStatus, info.message || "No downloadable video formats were found for this video. The preview still works.", "busy");
       }
 
       el.download.disabled = !state.qualities.length;
